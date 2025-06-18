@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MinioClientHelper {
-    private static final String ENDPOINT = "http://host.docker.internal:9000";
+    private static final String ENDPOINT = "http://192.168.56.1:9000";
     private static final String ACCESS_KEY = "admin";
     private static final String SECRET_KEY = "admin123";
     private static final String BUCKET = "datalake";

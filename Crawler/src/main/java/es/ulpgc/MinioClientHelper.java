@@ -3,7 +3,7 @@ package es.ulpgc;
 import io.minio.*;
 
 public class MinioClientHelper {
-    private static final String ENDPOINT = "http://192.168.16.1:9000"; // IP del equipo con MinIO
+    private static final String ENDPOINT = "http://192.168.56.1:9000"; // IP del equipo con MinIO
     private static final String ACCESS_KEY = "admin";
     private static final String SECRET_KEY = "admin123";
     private static final String BUCKET = "datalake";
