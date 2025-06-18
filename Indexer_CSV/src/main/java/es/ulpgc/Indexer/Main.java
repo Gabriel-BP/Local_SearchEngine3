@@ -22,11 +22,15 @@ public class Main {
         config.setClusterName("indexer-cluster");
 
         NetworkConfig networkConfig = config.getNetworkConfig();
-        JoinConfig joinConfig = networkConfig.getJoin();
+        networkConfig.setPort(5701).setPortAutoIncrement(true);
 
+        JoinConfig joinConfig = networkConfig.getJoin();
         joinConfig.getMulticastConfig().setEnabled(false);
-        TcpIpConfig tcpIpConfig = joinConfig.getTcpIpConfig().setEnabled(true);
-        tcpIpConfig.addMember("192.168.16.1");  // dirección del host que ejecuta Docker Desktop
+
+        joinConfig.getTcpIpConfig()
+                .setEnabled(true)
+                .addMember("192.168.0.56")
+                .addMember("192.168.0.237");
 
         HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
 

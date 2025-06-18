@@ -25,8 +25,8 @@ public class Main {
 
         join.getTcpIpConfig()
                 .setEnabled(true)
-                .addMember("192.168.16.1")
-                .addMember("192.168.16.2");
+                .addMember("192.168.0.56")
+                .addMember("192.168.0.237");
 
         HazelcastInstance hazelcast = Hazelcast.newHazelcastInstance(config);
 
