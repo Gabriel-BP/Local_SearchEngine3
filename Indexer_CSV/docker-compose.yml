@@ -1,0 +1,72 @@
+services:
+  indexer1:
+    image: indexer-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indexer1
+    networks:
+      - hazelcast-network
+    environment:
+      - HAZELCAST_CLUSTER_NAME=indexer-cluster
+      - HAZELCAST_NETWORK_PORT=5701
+      - HAZELCAST_DISCOVERY_SERVER=hazelcast1
+    depends_on:
+      - hazelcast1
+    volumes:
+      - crawler_shared_datalake:/app/datalake
+      - csv_data:/app/csv_data
+
+  indexer2:
+    image: indexer-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indexer2
+    networks:
+      - hazelcast-network
+    environment:
+      - HAZELCAST_CLUSTER_NAME=indexer-cluster
+      - HAZELCAST_NETWORK_PORT=5701
+      - HAZELCAST_DISCOVERY_SERVER=hazelcast1
+    depends_on:
+      - hazelcast1
+    volumes:
+      - crawler_shared_datalake:/app/datalake
+      - csv_data:/app/csv_data
+
+  indexer3:
+    image: indexer-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indexer3
+    networks:
+      - hazelcast-network
+    environment:
+      - HAZELCAST_CLUSTER_NAME=indexer-cluster
+      - HAZELCAST_NETWORK_PORT=5701
+      - HAZELCAST_DISCOVERY_SERVER=hazelcast1
+    depends_on:
+      - hazelcast1
+    volumes:
+      - crawler_shared_datalake:/app/datalake
+      - csv_data:/app/csv_data
+
+  hazelcast1:
+    image: hazelcast/hazelcast:5.4.0
+    container_name: hazelcast1
+    networks:
+      - hazelcast-network
+    environment:
+      - HAZELCAST_CLUSTER_NAME=indexer-cluster
+      - HAZELCAST_DISCOVERY_STRATEGY=KUBERNETES
+
+volumes:
+  crawler_shared_datalake:
+    external: true # Shared volume reference
+  csv_data:
+
+networks:
+  hazelcast-network:
+    driver: bridge

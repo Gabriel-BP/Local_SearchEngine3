@@ -1,0 +1,5 @@
+# Project exclude paths
+/Crawler/target/
+/Indexer/target/
+/Indexer_CSV/target/
+/QueryEngine/target/

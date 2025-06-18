@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="target">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/Indexer_CSV/target/original-indexer-1.0-SNAPSHOT.jar!/" />
+      <root url="jar://$PROJECT_DIR$/Indexer_CSV/target/indexer-1.0-SNAPSHOT.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

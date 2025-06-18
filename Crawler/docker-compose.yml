@@ -1,0 +1,49 @@
+services:
+  hazelcast:
+    image: hazelcast/hazelcast:latest
+    container_name: hazelcast_crawler
+    ports:
+      - "5701:5701"
+      - "5701:5701/udp"  # Allow UDP traffic for multicast
+    volumes:
+      - hazelcast_data_crawler:/opt/hazelcast/data
+    networks:
+      - hazelcast_network_crawler
+
+  crawler1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler1
+    depends_on:
+      - hazelcast
+    environment:
+      - HAZELCAST_MEMBER=hazelcast
+      - PROGRESS_MAP_FILE=/shared/progressMap.dat
+    volumes:
+      - shared_datalake:/app/datalake
+    networks:
+      - hazelcast_network_crawler
+
+  crawler2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler2
+    depends_on:
+      - hazelcast
+    environment:
+      - HAZELCAST_MEMBER=hazelcast
+      - PROGRESS_MAP_FILE=/shared/progressMap.dat
+    volumes:
+      - shared_datalake:/app/datalake
+    networks:
+      - hazelcast_network_crawler
+
+volumes:
+  hazelcast_data_crawler:
+  shared_datalake:
+
+networks:
+  hazelcast_network_crawler:
+    driver: bridge
