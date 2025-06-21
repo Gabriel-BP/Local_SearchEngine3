@@ -63,35 +63,21 @@ public class Main {
         Runnable task = () -> {
             System.out.println("[INFO] Indexer scheduled every 30 seconds.");
 
-            String lastProcessedFile = lastProcessedMap.get("lastProcessed");
-            System.out.println("[INFO] Last processed file: " + lastProcessedFile);
+            try {
+                // Añadir nuevos archivos a la cola si no están ya procesados ni en cola
+                List<String> files = listTxtOrHtmlFilesInMinio();
+                files.sort(Comparator.comparing(Main::extractFilenameNumber));
 
-            boolean isMaster = hazelcastInstance.getCluster().getLocalMember().equals(
-                    hazelcastInstance.getCluster().getMembers().iterator().next()
-            );
-            System.out.println("[DEBUG] Members: " + hazelcastInstance.getCluster().getMembers());
-            System.out.println("[DEBUG] Local: " + hazelcastInstance.getCluster().getLocalMember());
-
-            if (taskQueue.isEmpty() && isMaster) {
-                System.out.println("[INFO] Task queue is empty. Attempting to initialize...");
-                try {
-                    List<String> files = listTxtOrHtmlFilesInMinio();
-                    files.sort(Comparator.comparing(Main::extractFilenameNumber));
-                    boolean addFiles = lastProcessedFile == null;
-                    for (String path : files) {
-                        if (!addFiles && path.endsWith("/" + lastProcessedFile)) {
-                            addFiles = true;
-                            continue;
-                        }
-                        if (addFiles) {
-                            System.out.println("[DEBUG] Adding to queue: " + path);
-                            taskQueue.add(path);
-                        }
+                for (String path : files) {
+                    String fileName = new File(path).getName();
+                    if (!lastProcessedMap.containsKey(fileName) && !taskQueue.contains(path)) {
+                        System.out.println("[DEBUG] Añadiendo nuevo archivo a la cola: " + path);
+                        taskQueue.add(path);
                     }
-                } catch (Exception e) {
-                    System.err.println("[ERROR] Failed to initialize task queue: " + e.getMessage());
                 }
-                System.out.println("[INFO] Task queue initialized.");
+                System.out.println("[INFO] Cola actualizada con nuevos archivos (si los había)");
+            } catch (Exception e) {
+                System.err.println("[ERROR] Fallo al actualizar la cola desde MinIO: " + e.getMessage());
             }
 
             String filePath;
