@@ -75,8 +75,14 @@ public class Main {
             String filePath;
             try {
                 while ((filePath = taskQueue.poll()) != null) {
+                    String fileName = new File(filePath).getName();
+                    if (lastProcessedMap.containsKey(fileName)) {
+                        System.out.println("[SKIP] Ya procesado: " + fileName);
+                        continue;
+                    }
+
                     System.out.println("[INFO] Processing file: " + filePath);
-                    String localPath = "/tmp/" + new File(filePath).getName();
+                    String localPath = "/tmp/" + fileName;
                     try {
                         MinioClientHelper.downloadFile(filePath, localPath);
                     } catch (Exception e) {
@@ -89,8 +95,9 @@ public class Main {
                     Indexer indexer = new Indexer();
                     indexer.indexBooks(Collections.singletonList(book), "csv");
                     System.out.println("[INFO] File processed and indexed: " + filePath);
-                    lastProcessedMap.put("lastProcessed", new File(filePath).getName());
+                    lastProcessedMap.put(fileName, "done");
                 }
+
                 System.out.println("[INFO] No more tasks in queue.");
             } catch (IOException e) {
                 System.err.println("[ERROR] Processing failure: " + e.getMessage());

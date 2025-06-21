@@ -25,7 +25,9 @@ public class ResourceInitializer {
 
     private void populateTaskQueue() {
         int totalBooks = 10000;
-        for (int i = 1; i <= totalBooks; i++) {
+        int lastId = MinioClientHelper.getLastDownloadedBookId();
+
+        for (int i = lastId + 1; i <= totalBooks; i++) {
             if (!progressMap.getOrDefault(i, false)) {
                 boolean offered = taskQueue.offer(i);
                 if (!offered) {
@@ -33,5 +35,7 @@ public class ResourceInitializer {
                 }
             }
         }
+
+        System.out.println("Queue inicializada desde ID: " + (lastId + 1));
     }
 }

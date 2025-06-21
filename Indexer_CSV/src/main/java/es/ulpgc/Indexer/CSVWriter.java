@@ -43,7 +43,6 @@ public class CSVWriter {
             System.err.println("Error escribiendo metadatos en CSV: " + e.getMessage());
         }
 
-        // ➕ SUBIR a MinIO
         try {
             MinioClientHelper.uploadFile(INDEX_METADATA_FILE, "index/" + INDEX_METADATA_FILE);
         } catch (Exception e) {
@@ -53,17 +52,35 @@ public class CSVWriter {
 
     public void saveContentToCSV(Map<String, Set<String>> wordToEbookNumbers) {
         File file = new File(INDEX_CONTENT_FILE);
+        Set<String> existingLines = new HashSet<>();
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-            writer.write("Word,EbookNumbers\n");
+        if (file.exists()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                reader.readLine(); // Saltar cabecera
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    existingLines.add(line.trim());
+                }
+            } catch (IOException e) {
+                System.err.println("Error leyendo índice previo: " + e.getMessage());
+            }
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file, true))) {
+            if (existingLines.isEmpty()) {
+                writer.write("Word,EbookNumbers\n");
+            }
+
             for (Map.Entry<String, Set<String>> entry : wordToEbookNumbers.entrySet()) {
-                writer.write(entry.getKey() + "," + String.join(",", entry.getValue()) + "\n");
+                String line = entry.getKey() + "," + String.join(",", entry.getValue());
+                if (!existingLines.contains(line)) {
+                    writer.write(line + "\n");
+                }
             }
         } catch (IOException e) {
             System.err.println("Error escribiendo índice en CSV: " + e.getMessage());
         }
 
-        // ➕ SUBIR a MinIO
         try {
             MinioClientHelper.uploadFile(INDEX_CONTENT_FILE, "index/" + INDEX_CONTENT_FILE);
         } catch (Exception e) {
