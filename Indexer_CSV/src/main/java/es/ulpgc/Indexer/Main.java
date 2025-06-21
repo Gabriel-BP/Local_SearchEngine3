@@ -13,24 +13,46 @@ import es.ulpgc.Cleaner.Cleaner;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
 
 public class Main {
     public static void main(String[] args) {
         Config config = new Config();
-        config.setClusterName("indexer-cluster");
+        config.setClusterName("search-cluster");
 
-        NetworkConfig networkConfig = config.getNetworkConfig();
-        networkConfig.setPort(5701).setPortAutoIncrement(true);
+        NetworkConfig network = config.getNetworkConfig();
+        network.setPort(5701).setPortAutoIncrement(true);
 
-        JoinConfig joinConfig = networkConfig.getJoin();
-        joinConfig.getMulticastConfig().setEnabled(false);
+        // Detectar IP válida del contenedor
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
+                        network.setPublicAddress(addr.getHostAddress());
+                        System.out.println("[INFO] IP detectada para Hazelcast: " + addr.getHostAddress());
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[ERROR] No se pudo detectar IP local del contenedor: " + e.getMessage());
+        }
 
-        joinConfig.getTcpIpConfig()
-                .setEnabled(true)
-                .addMember("192.168.56.1")
-                .addMember("192.168.0.237");
+        JoinConfig join = network.getJoin();
+        join.getMulticastConfig().setEnabled(false);
+
+        String hazelcastMembers = System.getenv().getOrDefault("HZ_MEMBERS", "host.docker.internal");
+        TcpIpConfig tcpIpConfig = join.getTcpIpConfig().setEnabled(true);
+        for (String member : hazelcastMembers.split(",")) {
+            System.out.println("[INFO] Añadiendo miembro Hazelcast: " + member.trim());
+            tcpIpConfig.addMember(member.trim());
+        }
 
         HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
 

@@ -7,7 +7,7 @@ import java.io.File;
 import java.util.*;
 
 public class MinioClientHelper {
-    private static final String ENDPOINT = "http://192.168.56.1:9000"; // IP del equipo con MinIO
+    private static final String ENDPOINT = "http://192.168.0.56:9000"; // IP del equipo con MinIO
     private static final String ACCESS_KEY = "admin";
     private static final String SECRET_KEY = "admin123";
     private static final String BUCKET = "datalake";
@@ -66,9 +66,7 @@ public class MinioClientHelper {
 
             // Obtener la carpeta con fecha más reciente
             String latestDate = folders.stream()
-                    .distinct()
-                    .sorted(Comparator.reverseOrder())
-                    .findFirst()
+                    .distinct().min(Comparator.reverseOrder())
                     .orElse(null);
 
             if (latestDate == null) return 10;
