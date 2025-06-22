@@ -1,10 +1,7 @@
 package es.ulpgc.Indexer;
 
 import com.hazelcast.collection.IQueue;
-import com.hazelcast.config.Config;
-import com.hazelcast.config.JoinConfig;
-import com.hazelcast.config.NetworkConfig;
-import com.hazelcast.config.TcpIpConfig;
+import com.hazelcast.config.*;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
@@ -12,7 +9,6 @@ import es.ulpgc.Cleaner.Book;
 import es.ulpgc.Cleaner.Cleaner;
 
 import java.io.File;
-import java.io.IOException;
 import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -56,15 +52,23 @@ public class Main {
 
         HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
 
+        String role = System.getenv().getOrDefault("ROLE", "worker").toLowerCase();
+        if (role.equals("writer")) {
+            runWriter(hazelcastInstance);
+        } else {
+            runWorker(hazelcastInstance);
+        }
+    }
+
+    private static void runWorker(HazelcastInstance hazelcastInstance) {
         IQueue<String> taskQueue = hazelcastInstance.getQueue("bookTasks");
         IMap<String, String> lastProcessedMap = hazelcastInstance.getMap("lastProcessedMap");
+        IQueue<IndexResult> resultsQueue = hazelcastInstance.getQueue("resultsQueue");
 
-        Indexer indexer = new Indexer(); // Se crea una vez
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-        Runnable task = () -> {
-            System.out.println("[INFO] Indexer scheduled every 30 seconds.");
-
+        scheduler.scheduleWithFixedDelay(() -> {
             try {
                 List<String> files = listTxtOrHtmlFilesInMinio();
                 files.sort(Comparator.comparing(Main::extractFilenameNumber));
@@ -72,74 +76,108 @@ public class Main {
                 for (String path : files) {
                     String fileName = new File(path).getName();
                     if (!lastProcessedMap.containsKey(fileName) && !taskQueue.contains(path)) {
-                        System.out.println("[DEBUG] Añadiendo nuevo archivo a la cola: " + path);
                         taskQueue.add(path);
+                        System.out.println("[DEBUG] Añadido a la cola: " + path);
                     }
                 }
-                System.out.println("[INFO] Cola actualizada con nuevos archivos (si los había)");
-            } catch (Exception e) {
-                System.err.println("[ERROR] Fallo al actualizar la cola desde MinIO: " + e.getMessage());
-            }
 
-            try {
                 String filePath;
                 while ((filePath = taskQueue.poll()) != null) {
-                    String fileName = new File(filePath).getName();
-                    if (lastProcessedMap.containsKey(fileName)) {
-                        System.out.println("[SKIP] Ya procesado: " + fileName);
-                        continue;
-                    }
+                    String finalPath = filePath;
+                    pool.submit(() -> {
+                        String fileName = new File(finalPath).getName();
+                        if (lastProcessedMap.containsKey(fileName)) return;
 
-                    System.out.println("[INFO] Processing file: " + filePath);
-                    String localPath = "/tmp/" + fileName;
-                    try {
-                        MinioClientHelper.downloadFile(filePath, localPath);
-                    } catch (Exception e) {
-                        System.err.println("[ERROR] Failed to download from MinIO: " + e.getMessage());
-                        continue;
-                    }
+                        try {
+                            System.out.println("[INFO] Procesando: " + fileName);
+                            String localPath = "/tmp/" + fileName;
+                            MinioClientHelper.downloadFile(finalPath, localPath);
 
-                    Cleaner cleaner = new Cleaner();
-                    Book book = cleaner.processBook(new File(localPath));
-                    indexer.indexBooks(Collections.singletonList(book), "csv");
+                            Cleaner cleaner = new Cleaner();
+                            Book book = cleaner.processBook(new File(localPath));
+                            Indexer tempIndexer = new Indexer();
+                            tempIndexer.buildIndexes(List.of(book));
 
-                    System.out.println("[SUCCESS] Libro indexado correctamente y subido a MinIO: " + book.ebookNumber);
-                    lastProcessedMap.put(fileName, "done");
+                            IndexResult result = new IndexResult(book, tempIndexer.getBookIndexer().getHashMapIndexer().getIndex());
+                            resultsQueue.add(result);
+                            lastProcessedMap.put(fileName, "done");
+
+                            System.out.println("[SUCCESS] Resultado encolado: " + book.ebookNumber);
+                        } catch (Exception e) {
+                            System.err.println("[ERROR] Procesando " + fileName + ": " + e.getMessage());
+                        }
+                    });
                 }
 
-                System.out.println("[INFO] No more tasks in queue.");
-            } catch (IOException e) {
-                System.err.println("[ERROR] Processing failure: " + e.getMessage());
+            } catch (Exception e) {
+                System.err.println("[ERROR] Worker indexTask: " + e.getMessage());
             }
-        };
-
-        scheduler.scheduleAtFixedRate(task, 0, 30, TimeUnit.SECONDS);
+        }, 0, 1, TimeUnit.SECONDS);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("[INFO] Shutdown detected. Liberando recursos...");
+            System.out.println("[INFO] Shutdown detectado. Cerrando worker...");
             scheduler.shutdownNow();
-            indexer.shutdown();
+            pool.shutdownNow();
             hazelcastInstance.shutdown();
         }));
     }
 
-    private static List<String> listTxtOrHtmlFilesInMinio() throws Exception {
-        List<String> allFiles = MinioClientHelper.listFilesWithPrefix("raw/");
-        System.out.println("[DEBUG] Todos los objetos encontrados en MinIO:");
-        for (String file : allFiles) {
-            System.out.println("  - " + file);
-        }
+    private static void runWriter(HazelcastInstance hazelcastInstance) {
+        IQueue<IndexResult> queue = hazelcastInstance.getQueue("resultsQueue");
+        CSVWriter writer = new CSVWriter();
+        System.out.println("[WRITER] Esperando resultados...");
 
-        List<String> validFiles = new ArrayList<>();
-        for (String path : allFiles) {
-            if ((path.endsWith(".txt") || path.endsWith(".html")) && !path.endsWith("/")) {
-                validFiles.add(path);
+        final int BATCH_SIZE = 10;
+        final long MAX_WAIT_MILLIS = 3000;
+
+        List<IndexResult> batch = new ArrayList<>(BATCH_SIZE);
+        long lastFlush = System.currentTimeMillis();
+
+        while (true) {
+            try {
+                IndexResult result = queue.poll(500, TimeUnit.MILLISECONDS);
+                long now = System.currentTimeMillis();
+
+                if (result != null) batch.add(result);
+
+                if (!batch.isEmpty() && (batch.size() >= BATCH_SIZE || now - lastFlush >= MAX_WAIT_MILLIS)) {
+                    List<Book> books = new ArrayList<>();
+                    Map<String, Set<String>> merged = new TreeMap<>();
+
+                    batch.forEach(r -> {
+                        books.add(r.book);
+                        r.wordIndex.forEach((word, ids) ->
+                                merged.computeIfAbsent(word, k -> new HashSet<>()).addAll(ids));
+                    });
+
+                    writer.saveMetadataToCSV(books);
+                    writer.saveContentToCSV(merged);
+                    System.out.println("[WRITER] Guardado lote de " + batch.size() + " libros");
+
+                    batch.clear();
+                    lastFlush = now;
+                }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                System.err.println("[WRITER ERROR] " + e.getMessage());
             }
         }
-
-        System.out.println("[INFO] Valid .txt/.html files found in MinIO: " + validFiles.size());
-        return validFiles;
     }
+
+    private static List<String> listTxtOrHtmlFilesInMinio() throws Exception {
+        List<String> all = MinioClientHelper.listFilesWithPrefix("raw/");
+        List<String> valid = new ArrayList<>();
+        for (String path : all) {
+            if ((path.endsWith(".txt") || path.endsWith(".html")) && !path.endsWith("/")) {
+                valid.add(path);
+            }
+        }
+        return valid;
+    }
+
 
     private static int extractFilenameNumber(String path) {
         try {

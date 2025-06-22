@@ -57,4 +57,10 @@ public class Indexer {
         executor.shutdown();
         bookIndexer.shutdown();
     }
+
+    public BookIndexer getBookIndexer() {
+        return bookIndexer;
+    }
 }
+
+
