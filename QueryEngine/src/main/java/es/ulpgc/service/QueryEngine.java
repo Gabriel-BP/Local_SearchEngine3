@@ -9,16 +9,23 @@ import java.util.stream.Collectors;
 @Component
 public class QueryEngine {
     private InvertedIndex invertedIndex;
+    private DataSource dataSource;
 
     public QueryEngine(DataSource dataSource) {
-        this.invertedIndex = new InvertedIndex(dataSource);
+        this.dataSource = dataSource;
+        this.invertedIndex = new InvertedIndex(dataSource); // Cargamos el índice al iniciar
     }
 
-    public synchronized void reloadIndex(DataSource dataSource) {
-        this.invertedIndex = new InvertedIndex(dataSource); // Rebuild index with new data
+    // Recargar el índice cuando sea necesario
+    private void reloadIndexIfNeeded() {
+        // Lógica para verificar si los datos en MinIO han cambiado y recargar el índice
+        // Por ejemplo, puedes basarte en una marca de tiempo o alguna señal externa
+        this.invertedIndex = new InvertedIndex(dataSource); // Forzamos la recarga de los datos
     }
-    // Obtener estadísticas basadas en el tipo
+
     public Object getStats(String type) {
+        reloadIndexIfNeeded(); // Aseguramos que los datos estén siempre actualizados
+
         switch (type) {
             case "word_count":
                 return invertedIndex.getIndex().size();
@@ -38,8 +45,9 @@ public class QueryEngine {
         }
     }
 
-    // Buscar documentos basados en palabras y filtros
     public Set<Map<String, Object>> getDocuments(String[] words, Map<String, String> filters) {
+        reloadIndexIfNeeded(); // Aseguramos que los datos estén siempre actualizados
+
         // Buscar documentos que contengan todas las palabras
         Set<String> results = Arrays.stream(words)
                 .map(invertedIndex::search)

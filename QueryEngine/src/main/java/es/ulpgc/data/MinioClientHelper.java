@@ -1,16 +1,13 @@
 package es.ulpgc.data;
 
 import io.minio.*;
-import io.minio.messages.Item;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 
 public class MinioClientHelper {
-    private static final String ENDPOINT = "http://192.168.56.1:9000";
+    private static final String ENDPOINT = "http://192.168.0.56:9000";
     private static final String ACCESS_KEY = "admin";
     private static final String SECRET_KEY = "admin123";
     private static final String BUCKET = "datalake";
@@ -21,18 +18,16 @@ public class MinioClientHelper {
             .build();
 
     public static void downloadFile(String remotePath, String localPath) throws Exception {
-        // Evita descargar archivos incompletos .part.minio
-        if (remotePath.endsWith(".part.minio")) {
-            System.out.println("[WARN] Skipping temporary MinIO file: " + remotePath);
-            return;
-        }
-
+        // Siempre descargamos el archivo, sin importar si existe
         Path localFile = Paths.get(localPath);
+
+        // Si el archivo ya existe, lo eliminamos antes de volver a descargarlo
         if (Files.exists(localFile)) {
-            System.out.println("[INFO] Skipping download (already exists): " + localPath);
-            return;
+            System.out.println("[INFO] Deleting existing file: " + localPath);
+            Files.delete(localFile); // Eliminar el archivo existente
         }
 
+        // Descargar el archivo de MinIO
         client.downloadObject(
                 DownloadObjectArgs.builder()
                         .bucket(BUCKET)
@@ -40,33 +35,6 @@ public class MinioClientHelper {
                         .filename(localPath)
                         .build()
         );
-        System.out.println("Downloaded from MinIO: " + remotePath);
-    }
-
-
-    public static void uploadFile(String localPath, String remotePath) throws Exception {
-        client.uploadObject(
-                UploadObjectArgs.builder()
-                        .bucket(BUCKET)
-                        .object(remotePath)
-                        .filename(localPath)
-                        .build()
-        );
-        System.out.println("Uploaded to MinIO: " + remotePath);
-    }
-
-    public static List<String> listFilesWithPrefix(String prefix) throws Exception {
-        List<String> results = new ArrayList<>();
-        Iterable<Result<Item>> objects = client.listObjects(
-                ListObjectsArgs.builder()
-                        .bucket(BUCKET)
-                        .prefix(prefix)
-                        .recursive(true) // Habilita búsqueda en subdirectorios
-                        .build()
-        );
-        for (Result<Item> r : objects) {
-            results.add(r.get().objectName());
-        }
-        return results;
+        System.out.println("[INFO] Downloaded from MinIO: " + remotePath);
     }
 }
