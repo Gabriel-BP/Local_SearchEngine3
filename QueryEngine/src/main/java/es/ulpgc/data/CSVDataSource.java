@@ -6,22 +6,20 @@ import java.io.IOException;
 import java.util.*;
 
 public class CSVDataSource implements DataSource {
-    private final String contentFilePath;
-    private final String metadataFilePath;
-
-    public CSVDataSource(String contentFilePath, String metadataFilePath) {
-        this.contentFilePath = contentFilePath;
-        this.metadataFilePath = metadataFilePath;
-    }
+    private final String contentFilePath = "index_content.csv";
+    private final String metadataFilePath = "index_metadata.csv";
 
     @Override
     public Map<String, Set<String>> loadIndex() {
+        downloadIndexFile("index/index_content.csv", contentFilePath);
         Map<String, Set<String>> index = new HashMap<>();
+
         try (BufferedReader br = new BufferedReader(new FileReader(contentFilePath))) {
             String line;
             br.readLine(); // Skip header
             while ((line = br.readLine()) != null) {
                 String[] parts = line.split(",");
+                if (parts.length < 2) continue;
                 String word = parts[0];
                 Set<String> ebookNumbers = new HashSet<>(Arrays.asList(parts).subList(1, parts.length));
                 index.put(word, ebookNumbers);
@@ -29,28 +27,47 @@ public class CSVDataSource implements DataSource {
         } catch (IOException e) {
             System.err.println("Error reading the CSV file: " + e.getMessage());
         }
+
         return index;
     }
 
+    @Override
     public Map<String, Map<String, String>> loadMetadata(Set<String> ebookNumbers) {
+        downloadIndexFile("index/index_metadata.csv", metadataFilePath);
         Map<String, Map<String, String>> metadata = new HashMap<>();
+
         try (BufferedReader br = new BufferedReader(new FileReader(metadataFilePath))) {
-            String line = br.readLine(); // Read header
-            String[] headers = line.split(",");
+            String headerLine = br.readLine();
+            if (headerLine == null) return metadata;
+
+            String[] headers = headerLine.split(",");
+            String line;
+
             while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
+                String[] parts = line.split(",", headers.length);
+                if (parts.length != headers.length) continue;
+
                 String ebookNumber = parts[0];
-                if (ebookNumbers.contains(ebookNumber)) {
-                    Map<String, String> ebookMetadata = new HashMap<>();
-                    for (int i = 1; i < headers.length; i++) {
-                        ebookMetadata.put(headers[i], parts[i]);
-                    }
-                    metadata.put(ebookNumber, ebookMetadata);
+                if (!ebookNumbers.contains(ebookNumber)) continue;
+
+                Map<String, String> ebookMetadata = new HashMap<>();
+                for (int i = 1; i < headers.length; i++) {
+                    ebookMetadata.put(headers[i], parts[i]);
                 }
+                metadata.put(ebookNumber, ebookMetadata);
             }
         } catch (IOException e) {
             System.err.println("Error reading metadata CSV: " + e.getMessage());
         }
+
         return metadata;
+    }
+
+    private void downloadIndexFile(String remote, String local) {
+        try {
+            MinioClientHelper.downloadFile(remote, local);
+        } catch (Exception e) {
+            System.err.println("[WARN] Could not download " + remote + ": " + e.getMessage());
+        }
     }
 }

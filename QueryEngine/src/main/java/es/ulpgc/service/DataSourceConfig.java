@@ -30,7 +30,7 @@ public class DataSourceConfig {
             }
             System.out.println("[INFO] Index files downloaded successfully.");
 
-            return new CSVDataSource(contentPath, metadataPath);
+            return new CSVDataSource();
 
         } catch (Exception e) {
             System.err.println("[ERROR] Cannot download index files from MinIO: " + e.getMessage());
