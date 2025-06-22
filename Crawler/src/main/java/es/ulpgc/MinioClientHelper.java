@@ -62,14 +62,14 @@ public class MinioClientHelper {
                 }
             }
 
-            if (folders.isEmpty()) return 10;
+            if (folders.isEmpty()) return 0;
 
             // Obtener la carpeta con fecha más reciente
             String latestDate = folders.stream()
                     .distinct().min(Comparator.reverseOrder())
                     .orElse(null);
 
-            if (latestDate == null) return 10;
+            if (latestDate == null) return 0;
 
             // Obtener archivos en esa carpeta
             List<Integer> ids = new ArrayList<>();
@@ -89,11 +89,12 @@ public class MinioClientHelper {
                 } catch (Exception ignored) {}
             }
 
-            return ids.stream().max(Integer::compareTo).orElse(10);
+            return ids.stream().max(Integer::compareTo).orElse(0);
 
         } catch (Exception e) {
             System.err.println("Error obteniendo último ID desde MinIO: " + e.getMessage());
-            return 10;
+            return 0;
         }
     }
+
 }
