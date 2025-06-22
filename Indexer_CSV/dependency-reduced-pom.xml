@@ -7,19 +7,6 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>1.4.0</version>
-        <configuration>
-          <executable>java</executable>
-          <arguments>
-            <argument>-classpath</argument>
-            <classpath />
-            <argument>es.ulpgc.benchmark.IndexerCSVBenchmark</argument>
-          </arguments>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>pw.krejci</groupId>
         <artifactId>jmh-maven-plugin</artifactId>
         <version>0.2.2</version>

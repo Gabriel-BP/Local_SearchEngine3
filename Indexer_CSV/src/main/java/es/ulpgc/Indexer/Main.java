@@ -21,11 +21,11 @@ public class Main {
     public static void main(String[] args) {
         Config config = new Config();
         config.setClusterName("search-cluster");
+        config.setInstanceName("hazelcast-instance");
 
         NetworkConfig network = config.getNetworkConfig();
         network.setPort(5701).setPortAutoIncrement(true);
 
-        // Detectar IP válida del contenedor
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
@@ -59,12 +59,13 @@ public class Main {
         IQueue<String> taskQueue = hazelcastInstance.getQueue("bookTasks");
         IMap<String, String> lastProcessedMap = hazelcastInstance.getMap("lastProcessedMap");
 
+        Indexer indexer = new Indexer(); // Se crea una vez
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+
         Runnable task = () -> {
             System.out.println("[INFO] Indexer scheduled every 30 seconds.");
 
             try {
-                // Añadir nuevos archivos a la cola si no están ya procesados ni en cola
                 List<String> files = listTxtOrHtmlFilesInMinio();
                 files.sort(Comparator.comparing(Main::extractFilenameNumber));
 
@@ -80,8 +81,8 @@ public class Main {
                 System.err.println("[ERROR] Fallo al actualizar la cola desde MinIO: " + e.getMessage());
             }
 
-            String filePath;
             try {
+                String filePath;
                 while ((filePath = taskQueue.poll()) != null) {
                     String fileName = new File(filePath).getName();
                     if (lastProcessedMap.containsKey(fileName)) {
@@ -100,9 +101,9 @@ public class Main {
 
                     Cleaner cleaner = new Cleaner();
                     Book book = cleaner.processBook(new File(localPath));
-                    Indexer indexer = new Indexer();
                     indexer.indexBooks(Collections.singletonList(book), "csv");
-                    System.out.println("[INFO] File processed and indexed: " + filePath);
+
+                    System.out.println("[SUCCESS] Libro indexado correctamente y subido a MinIO: " + book.ebookNumber);
                     lastProcessedMap.put(fileName, "done");
                 }
 
@@ -113,6 +114,13 @@ public class Main {
         };
 
         scheduler.scheduleAtFixedRate(task, 0, 30, TimeUnit.SECONDS);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("[INFO] Shutdown detected. Liberando recursos...");
+            scheduler.shutdownNow();
+            indexer.shutdown();
+            hazelcastInstance.shutdown();
+        }));
     }
 
     private static List<String> listTxtOrHtmlFilesInMinio() throws Exception {

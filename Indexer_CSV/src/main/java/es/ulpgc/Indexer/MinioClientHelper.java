@@ -3,6 +3,7 @@ package es.ulpgc.Indexer;
 import io.minio.*;
 import io.minio.messages.Item;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,6 +18,20 @@ public class MinioClientHelper {
             .credentials(ACCESS_KEY, SECRET_KEY)
             .build();
 
+    static {
+        try {
+            boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(BUCKET).build());
+            if (!exists) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(BUCKET).build());
+                System.out.println("[INFO] Bucket '" + BUCKET + "' creado en MinIO.");
+            } else {
+                System.out.println("[INFO] Bucket '" + BUCKET + "' ya existe.");
+            }
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error comprobando o creando el bucket en MinIO: " + e.getMessage());
+        }
+    }
+
     public static void downloadFile(String remotePath, String localPath) throws Exception {
         client.downloadObject(
                 DownloadObjectArgs.builder()
@@ -25,18 +40,28 @@ public class MinioClientHelper {
                         .filename(localPath)
                         .build()
         );
-        System.out.println("Downloaded from MinIO: " + remotePath);
+        System.out.println("[INFO] Downloaded from MinIO: " + remotePath);
     }
 
     public static void uploadFile(String localPath, String remotePath) throws Exception {
-        client.uploadObject(
-                UploadObjectArgs.builder()
-                        .bucket(BUCKET)
-                        .object(remotePath)
-                        .filename(localPath)
-                        .build()
-        );
-        System.out.println("Uploaded to MinIO: " + remotePath);
+        File file = new File(localPath);
+        if (!file.exists()) {
+            throw new IllegalArgumentException("El archivo local no existe: " + localPath);
+        }
+
+        try {
+            client.uploadObject(
+                    UploadObjectArgs.builder()
+                            .bucket(BUCKET)
+                            .object(remotePath)
+                            .filename(localPath)
+                            .build()
+            );
+            System.out.println("[INFO] Uploaded to MinIO: " + remotePath);
+        } catch (Exception e) {
+            System.err.println("[ERROR] Fallo al subir a MinIO: " + remotePath + " -> " + e.getMessage());
+            throw e;
+        }
     }
 
     public static List<String> listFilesWithPrefix(String prefix) throws Exception {
@@ -45,7 +70,7 @@ public class MinioClientHelper {
                 ListObjectsArgs.builder()
                         .bucket(BUCKET)
                         .prefix(prefix)
-                        .recursive(true) // Habilita búsqueda en subdirectorios
+                        .recursive(true)
                         .build()
         );
         for (Result<Item> r : objects) {

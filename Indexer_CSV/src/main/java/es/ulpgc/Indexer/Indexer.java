@@ -13,7 +13,7 @@ public class Indexer {
 
     public Indexer() {
         this.bookIndexer = new BookIndexer();
-        this.csvWriter = new CSVWriter();
+        this.csvWriter = new CSVWriter(); // No necesita HazelcastInstance explícito
         this.executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
 
