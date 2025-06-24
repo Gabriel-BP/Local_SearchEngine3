@@ -13,18 +13,15 @@ public class QueryEngine {
 
     public QueryEngine(DataSource dataSource) {
         this.dataSource = dataSource;
-        this.invertedIndex = new InvertedIndex(dataSource); // Cargamos el índice al iniciar
+        this.invertedIndex = new InvertedIndex(dataSource);
     }
 
-    // Recargar el índice cuando sea necesario
     private void reloadIndexIfNeeded() {
-        // Lógica para verificar si los datos en MinIO han cambiado y recargar el índice
-        // Por ejemplo, puedes basarte en una marca de tiempo o alguna señal externa
-        this.invertedIndex = new InvertedIndex(dataSource); // Forzamos la recarga de los datos
+        this.invertedIndex = new InvertedIndex(dataSource);
     }
 
     public Object getStats(String type) {
-        reloadIndexIfNeeded(); // Aseguramos que los datos estén siempre actualizados
+        reloadIndexIfNeeded();
 
         switch (type) {
             case "word_count":
@@ -35,44 +32,101 @@ public class QueryEngine {
                         .collect(Collectors.toSet())
                         .size();
             case "top_words":
-                return invertedIndex.getIndex().entrySet().stream()
-                        .sorted((e1, e2) -> Integer.compare(e2.getValue().size(), e1.getValue().size()))
-                        .limit(10)
-                        .map(entry -> Map.of("word", entry.getKey(), "count", entry.getValue().size()))
-                        .collect(Collectors.toList());
+                return getTopWords(10, 0);
             default:
                 throw new IllegalArgumentException("Invalid stats type");
         }
     }
 
     public Set<Map<String, Object>> getDocuments(String[] words, Map<String, String> filters) {
-        reloadIndexIfNeeded(); // Aseguramos que los datos estén siempre actualizados
+        reloadIndexIfNeeded();
 
-        // Buscar documentos que contengan todas las palabras
         Set<String> results = Arrays.stream(words)
                 .map(invertedIndex::search)
                 .reduce((set1, set2) -> {
-                    set1.retainAll(set2); // Intersección
+                    set1.retainAll(set2);
                     return set1;
                 })
                 .orElse(Collections.emptySet());
 
-        // Aplicar filtros de metadatos
         return results.stream()
                 .filter(doc -> {
                     Map<String, String> metadata = invertedIndex.getMetadata(doc);
-                    if (filters.containsKey("from") && Integer.parseInt(metadata.get("date")) < Integer.parseInt(filters.get("from"))) {
-                        return false;
-                    }
-                    if (filters.containsKey("to") && Integer.parseInt(metadata.get("date")) > Integer.parseInt(filters.get("to"))) {
-                        return false;
-                    }
-                    if (filters.containsKey("author") && !metadata.get("author").equalsIgnoreCase(filters.get("author"))) {
-                        return false;
+                    if (metadata == null || metadata.isEmpty()) return false;
+
+                    for (Map.Entry<String, String> entry : filters.entrySet()) {
+                        String key = entry.getKey();
+                        String expected = entry.getValue().toLowerCase();
+
+                        if (key.equals("from")) {
+                            try {
+                                int min = Integer.parseInt(expected);
+                                int year = Integer.parseInt(metadata.getOrDefault("date", "-1").replaceAll("\\D", "-1"));
+                                if (year < min) return false;
+                            } catch (Exception ignored) {}
+                        } else if (key.equals("to")) {
+                            try {
+                                int max = Integer.parseInt(expected);
+                                int year = Integer.parseInt(metadata.getOrDefault("date", "-1").replaceAll("\\D", "-1"));
+                                if (year > max) return false;
+                            } catch (Exception ignored) {}
+                        } else {
+                            String field = metadata.getOrDefault(key, "").toLowerCase();
+                            if (!field.contains(expected)) return false;
+                        }
                     }
                     return true;
                 })
                 .map(doc -> Map.of("document", doc, "metadata", invertedIndex.getMetadata(doc)))
                 .collect(Collectors.toSet());
+    }
+
+    public List<String> suggestWords(String prefix) {
+        reloadIndexIfNeeded();
+        return invertedIndex.getIndex().keySet().stream()
+                .filter(word -> word.startsWith(prefix.toLowerCase()))
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    public Map<String, Object> getWordFrequency(String word) {
+        reloadIndexIfNeeded();
+        Set<String> docs = invertedIndex.search(word.toLowerCase());
+        return Map.of("word", word, "count", docs.size());
+    }
+
+    public Map<String, String> getMetadata(String ebookNumber) {
+        reloadIndexIfNeeded();
+        return invertedIndex.getMetadata(ebookNumber);
+    }
+
+    public List<Map<String, Object>> getTopWords(int limit, int offset) {
+        reloadIndexIfNeeded();
+        return invertedIndex.getIndex().entrySet().stream()
+                .sorted((e1, e2) -> Integer.compare(e2.getValue().size(), e1.getValue().size()))
+                .skip(offset)
+                .limit(limit)
+                .map(e -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("word", e.getKey());
+                    map.put("count", e.getValue().size());
+                    return map;
+                })
+                .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getRareWords(int limit, int offset) {
+        reloadIndexIfNeeded();
+        return invertedIndex.getIndex().entrySet().stream()
+                .filter(e -> e.getValue().size() == 1)
+                .skip(offset)
+                .limit(limit)
+                .map(e -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("word", e.getKey());
+                    map.put("documents", e.getValue());
+                    return map;
+                })
+                .collect(Collectors.toList());
     }
 }
