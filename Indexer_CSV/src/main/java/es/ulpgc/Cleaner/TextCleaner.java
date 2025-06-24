@@ -17,9 +17,14 @@ public class TextCleaner {
 
         for (String word : words) {
             word = word.replace("_", "").trim();
-            if (!stopwords.contains(word) && word.length() > 2 && !word.matches("\\d+")) {
+            if (
+                    word.length() > 2 &&
+                            !stopwords.contains(word) &&
+                            word.matches("^[a-z]+$")  // solo letras minúsculas
+            ) {
                 meaningfulWords.add(word);
             }
+
         }
         return meaningfulWords;
     }

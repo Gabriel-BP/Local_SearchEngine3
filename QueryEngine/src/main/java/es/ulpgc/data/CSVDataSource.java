@@ -52,7 +52,9 @@ public class CSVDataSource implements DataSource {
 
                 Map<String, String> ebookMetadata = new HashMap<>();
                 for (int i = 1; i < headers.length; i++) {
-                    ebookMetadata.put(headers[i], parts[i]);
+                    String key = headers[i].trim().toLowerCase();      // Normalize key
+                    String value = parts[i].trim();                    // Trim value
+                    ebookMetadata.put(key, value);
                 }
                 metadata.put(ebookNumber, ebookMetadata);
             }

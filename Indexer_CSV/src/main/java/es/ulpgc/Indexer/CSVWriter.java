@@ -38,9 +38,9 @@ public class CSVWriter {
             for (Book book : books) {
                 String id = book.ebookNumber.trim().toLowerCase();
                 if (!existing.contains(id)) {
-                    String row = String.format("%s,%s,%s,%s,%s,%s",
-                            book.ebookNumber, book.title, book.author,
-                            book.date, book.language, book.credits);
+                    String row = String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"",
+                            escape(book.ebookNumber), escape(book.title), escape(book.author),
+                            escape(book.date), escape(book.language), escape(book.credits));
                     allLines.add(row);
                     existing.add(id);
                 }
@@ -138,5 +138,9 @@ public class CSVWriter {
             }
         }
         return merged;
+    }
+
+    private String escape(String input) {
+        return input == null ? "" : input.replace("\"", "\"\"");
     }
 }
