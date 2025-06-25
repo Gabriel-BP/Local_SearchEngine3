@@ -4,6 +4,8 @@ import es.ulpgc.data.DataSource;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
@@ -61,15 +63,27 @@ public class QueryEngine {
                         if (key.equals("from")) {
                             try {
                                 int min = Integer.parseInt(expected);
-                                int year = Integer.parseInt(metadata.getOrDefault("date", "-1").replaceAll("\\D", "-1"));
-                                if (year < min) return false;
-                            } catch (Exception ignored) {}
+                                Matcher matcher = Pattern.compile("(\\d{4})").matcher(metadata.getOrDefault("date", ""));
+                                if (matcher.find()) {
+                                    int year = Integer.parseInt(matcher.group(1));
+                                    if (year < min) return false;
+                                } else {
+                                    return false;
+                                }
+                            } catch (Exception ignored) {
+                            }
                         } else if (key.equals("to")) {
                             try {
                                 int max = Integer.parseInt(expected);
-                                int year = Integer.parseInt(metadata.getOrDefault("date", "-1").replaceAll("\\D", "-1"));
-                                if (year > max) return false;
-                            } catch (Exception ignored) {}
+                                Matcher matcher = Pattern.compile("(\\d{4})").matcher(metadata.getOrDefault("date", ""));
+                                if (matcher.find()) {
+                                    int year = Integer.parseInt(matcher.group(1));
+                                    if (year > max) return false;
+                                } else {
+                                    return false;
+                                }
+                            } catch (Exception ignored) {
+                            }
                         } else {
                             String field = metadata.getOrDefault(key, "").toLowerCase();
                             if (!field.contains(expected)) return false;

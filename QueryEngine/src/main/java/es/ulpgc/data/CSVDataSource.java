@@ -40,20 +40,20 @@ public class CSVDataSource implements DataSource {
             String headerLine = br.readLine();
             if (headerLine == null) return metadata;
 
-            String[] headers = headerLine.split(",");
+            String[] headers = splitCsvLine(headerLine);
             String line;
 
             while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",", headers.length);
+                String[] parts = splitCsvLine(line);
                 if (parts.length != headers.length) continue;
 
-                String ebookNumber = parts[0];
+                String ebookNumber = clean(parts[0]);
                 if (!ebookNumbers.contains(ebookNumber)) continue;
 
                 Map<String, String> ebookMetadata = new HashMap<>();
                 for (int i = 1; i < headers.length; i++) {
-                    String key = headers[i].trim().toLowerCase();      // Normalize key
-                    String value = parts[i].trim();                    // Trim value
+                    String key = headers[i].trim().toLowerCase();
+                    String value = clean(parts[i]);
                     ebookMetadata.put(key, value);
                 }
                 metadata.put(ebookNumber, ebookMetadata);
@@ -64,6 +64,32 @@ public class CSVDataSource implements DataSource {
 
         return metadata;
     }
+
+    private String clean(String value) {
+        return value == null ? "" : value.trim().replaceAll("^\"|\"$", "");
+    }
+
+    private String[] splitCsvLine(String line) {
+        List<String> result = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+
+            if (c == '\"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                result.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        result.add(current.toString());
+        return result.toArray(new String[0]);
+    }
+
 
     private void downloadIndexFile(String remote, String local) {
         try {
