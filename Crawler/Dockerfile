@@ -7,11 +7,11 @@ WORKDIR /app
 # Copy the compiled JAR file to the container
 COPY target/crawler-1.0-SNAPSHOT.jar ./crawler-module.jar
 
-# Añade esta línea para permitir flags externos
-ENV JAVA_OPTS=""
-
 # Expose Hazelcast default port
 EXPOSE 5701
 
-# Command to run the application
-CMD ["java", "-jar", "crawler-module.jar"]
+# Default empty JAVA_OPTS
+ENV JAVA_OPTS=""
+
+# Command to run the application with JAVA_OPTS
+CMD java $JAVA_OPTS -jar crawler-module.jar
