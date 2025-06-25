@@ -7,6 +7,9 @@ WORKDIR /app
 # Copy the compiled JAR file to the container
 COPY target/crawler-1.0-SNAPSHOT.jar ./crawler-module.jar
 
+# Añade esta línea para permitir flags externos
+ENV JAVA_OPTS=""
+
 # Expose Hazelcast default port
 EXPOSE 5701
 

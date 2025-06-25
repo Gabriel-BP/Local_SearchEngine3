@@ -7,6 +7,8 @@ WORKDIR /app
 # Copy the compiled JAR file to the container
 COPY target/indexer_csv-1.0-SNAPSHOT.jar ./indexer_csv-module.jar
 
+ENV JAVA_OPTS=""
+
 # Expose Hazelcast default port
 EXPOSE 5701
 
