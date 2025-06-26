@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MinioClientHelper {
-    private static final String ENDPOINT = "http://192.168.0.56:9000";
+    private static final String ENDPOINT = System.getenv().getOrDefault("MINIO_ENDPOINT", "http://localhost:9000");
     private static final String ACCESS_KEY = "admin";
     private static final String SECRET_KEY = "admin123";
     private static final String BUCKET = "datalake";
