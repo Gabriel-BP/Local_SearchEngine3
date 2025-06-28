@@ -1,34 +1,26 @@
 package es.ulpgc.Indexer;
 
 import es.ulpgc.Cleaner.Book;
-
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class DataMartWriter {
+
     private static final String CONTENT_DATAMART_DIR = "/app/datamart_content";
     private static final String METADATA_DATAMART_DIR = "/app/datamart_metadata";
 
-    /**
-     * Save content index to datamart_content following a trie-like directory structure.
-     */
     public void saveContentToDataMart(Map<String, Set<String>> wordToEbookNumbers) {
         File rootDir = new File(CONTENT_DATAMART_DIR);
 
-        // Create root directory if it doesn't exist
         if (!rootDir.exists() && !rootDir.mkdirs()) {
             System.err.println("Failed to create content data mart directory.");
             return;
         }
 
-        // Process each word and create the trie structure
         for (Map.Entry<String, Set<String>> entry : wordToEbookNumbers.entrySet()) {
             String word = entry.getKey();
             Set<String> ebookNumbers = entry.getValue();
@@ -45,58 +37,52 @@ public class DataMartWriter {
 
     private void createTrieStructure(File currentDir, String word, Set<String> ebookNumbers) throws IOException {
         for (int i = 0; i < word.length(); i++) {
-            String subDirName = word.substring(0, i + 1); // Prefix of the word up to the current character
-            subDirName = sanitizeName(subDirName); // Sanitize folder name to avoid conflicts
+            String subDirName = sanitizeName(word.substring(0, i + 1));
             File nextDir = new File(currentDir, subDirName);
 
-            // Intermediate directory creation
             if (!nextDir.exists() && !nextDir.mkdirs()) {
                 throw new IOException("Failed to create directory: " + nextDir.getPath());
             }
 
-            currentDir = nextDir; // Move to the next directory in the trie
+            currentDir = nextDir;
 
             if (i == word.length() - 1) {
-                // At the last character, create or update the .txt file with the word's name
                 String fileName = sanitizeName(word) + ".txt";
                 File wordFile = new File(currentDir, fileName);
 
                 if (wordFile.exists()) {
-                    // Word already exists, update the references
                     updateReferencesInFile(wordFile, ebookNumbers);
                 } else {
-                    // Word is new, create the file
                     try (FileWriter writer = new FileWriter(wordFile)) {
                         writer.write("{\"word\": \"" + word + "\", \"references\": [");
                         writer.write(ebookNumbers.stream()
-                                .map(ref -> "\"" + ref + "\"") // Enclose each reference in quotes
+                                .map(ref -> "\"" + ref + "\"")
                                 .collect(Collectors.joining(",")));
                         writer.write("]}");
                     }
+                }
+
+                // ✅ Nuevo: subir a MinIO después de guardar local
+                String relativePath = wordFile.getAbsolutePath().replace("/app/", "");
+                try {
+                    MinioClientHelper.uploadFile(wordFile.getAbsolutePath(), relativePath);
+                } catch (Exception e) {
+                    System.err.println("[UPLOAD ERROR] Failed to upload: " + relativePath + " -> " + e.getMessage());
                 }
             }
         }
     }
 
-
-
-    /**
-     * Updates the references in the existing word file by appending new ebook numbers.
-     */
     private void updateReferencesInFile(File wordFile, Set<String> ebookNumbers) throws IOException {
-        // Read existing data from the file
         String content = new String(Files.readAllBytes(wordFile.toPath()));
 
-        // Extract the current references (assuming JSON format)
         int referencesStartIndex = content.indexOf("\"references\": [") + 15;
         int referencesEndIndex = content.indexOf("]", referencesStartIndex);
         String existingReferencesStr = content.substring(referencesStartIndex, referencesEndIndex);
         Set<String> existingReferences = new HashSet<>(Arrays.asList(existingReferencesStr.replace("\"", "").split(",")));
 
-        // Append the new ebook numbers to the existing references
         existingReferences.addAll(ebookNumbers);
 
-        // Write back the updated content
         String updatedContent = content.substring(0, referencesStartIndex) +
                 existingReferences.stream()
                         .map(ref -> "\"" + ref + "\"")
@@ -104,39 +90,33 @@ public class DataMartWriter {
                 content.substring(referencesEndIndex);
 
         Files.write(wordFile.toPath(), updatedContent.getBytes());
+
+        // ✅ Subir después de actualizar
+        String relativePath = wordFile.getAbsolutePath().replace("/app/", "");
+        try {
+            MinioClientHelper.uploadFile(wordFile.getAbsolutePath(), relativePath);
+        } catch (Exception e) {
+            System.err.println("[UPLOAD ERROR] Failed to upload updated: " + relativePath + " -> " + e.getMessage());
+        }
     }
 
-
-    /**
-     * Sanitizes folder or file names to avoid using reserved names in Windows or invalid characters.
-     */
     private String sanitizeName(String name) {
-        // List of reserved names in Windows
         String[] reservedNames = {
-                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
-                "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
-                "LPT6", "LPT7", "LPT8", "LPT9"
+                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+                "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
         };
-
-        // Replace reserved names with a safe equivalent
         for (String reserved : reservedNames) {
             if (name.equalsIgnoreCase(reserved)) {
-                return "_" + name; // Prefix with an underscore to make it valid
+                return "_" + name;
             }
         }
-
-        // Replace invalid characters in file and folder names
         return name.replaceAll("[<>:\"/\\\\|?*]", "_");
     }
 
-
-    /**
-     * Save metadata for books into datamart_metadata, with each ebook having its own folder.
-     */
     public void saveMetadataToDataMart(Iterable<Book> books) {
         File rootDir = new File(METADATA_DATAMART_DIR);
 
-        // Create root directory if it doesn't exist
         if (!rootDir.exists() && !rootDir.mkdirs()) {
             System.err.println("Failed to create metadata data mart directory.");
             return;
@@ -145,7 +125,6 @@ public class DataMartWriter {
         for (Book book : books) {
             File bookDir = new File(rootDir, book.ebookNumber);
 
-            // Create a folder for the ebook if it doesn't already exist
             if (!bookDir.exists() && !bookDir.mkdirs()) {
                 System.err.println("Failed to create directory for ebook " + book.ebookNumber);
                 continue;
@@ -153,7 +132,6 @@ public class DataMartWriter {
 
             File metadataFile = new File(bookDir, "metadata.json");
 
-            // Write metadata to the file
             try (FileWriter writer = new FileWriter(metadataFile)) {
                 writer.write("{\n");
                 writer.write("  \"Title\": \"" + book.title + "\",\n");
@@ -164,6 +142,14 @@ public class DataMartWriter {
                 writer.write("}");
             } catch (IOException e) {
                 System.err.println("Error writing metadata for ebook " + book.ebookNumber + ": " + e.getMessage());
+            }
+
+            // ✅ Subir metadata
+            String relativePath = metadataFile.getAbsolutePath().replace("/app/", "");
+            try {
+                MinioClientHelper.uploadFile(metadataFile.getAbsolutePath(), relativePath);
+            } catch (Exception e) {
+                System.err.println("[UPLOAD ERROR] Failed to upload metadata: " + relativePath + " -> " + e.getMessage());
             }
         }
 

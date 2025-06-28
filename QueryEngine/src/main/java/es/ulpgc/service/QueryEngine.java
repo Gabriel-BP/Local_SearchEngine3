@@ -1,5 +1,6 @@
 package es.ulpgc.service;
 
+import es.ulpgc.data.DatamartDataSource;
 import es.ulpgc.data.DataSource;
 import org.springframework.stereotype.Component;
 
@@ -11,7 +12,7 @@ import java.util.stream.Collectors;
 @Component
 public class QueryEngine {
     private InvertedIndex invertedIndex;
-    private DataSource dataSource;
+    private final DataSource dataSource;
 
     public QueryEngine(DataSource dataSource) {
         this.dataSource = dataSource;
@@ -23,6 +24,10 @@ public class QueryEngine {
     }
 
     public Object getStats(String type) {
+        if (dataSource instanceof DatamartDataSource) {
+            throw new UnsupportedOperationException("Stats are not supported with DatamartDataSource");
+        }
+
         reloadIndexIfNeeded();
 
         switch (type) {
@@ -70,8 +75,7 @@ public class QueryEngine {
                                 } else {
                                     return false;
                                 }
-                            } catch (Exception ignored) {
-                            }
+                            } catch (Exception ignored) { }
                         } else if (key.equals("to")) {
                             try {
                                 int max = Integer.parseInt(expected);
@@ -82,8 +86,7 @@ public class QueryEngine {
                                 } else {
                                     return false;
                                 }
-                            } catch (Exception ignored) {
-                            }
+                            } catch (Exception ignored) { }
                         } else {
                             String field = metadata.getOrDefault(key, "").toLowerCase();
                             if (!field.contains(expected)) return false;
@@ -96,6 +99,10 @@ public class QueryEngine {
     }
 
     public List<String> suggestWords(String prefix) {
+        if (dataSource instanceof DatamartDataSource) {
+            throw new UnsupportedOperationException("Autocompletion is not supported with DatamartDataSource");
+        }
+
         reloadIndexIfNeeded();
         return invertedIndex.getIndex().keySet().stream()
                 .filter(word -> word.startsWith(prefix.toLowerCase()))
@@ -115,6 +122,10 @@ public class QueryEngine {
     }
 
     public List<Map<String, Object>> getTopWords(int limit, int offset) {
+        if (dataSource instanceof DatamartDataSource) {
+            throw new UnsupportedOperationException("Top words are not supported with DatamartDataSource");
+        }
+
         reloadIndexIfNeeded();
         return invertedIndex.getIndex().entrySet().stream()
                 .sorted((e1, e2) -> Integer.compare(e2.getValue().size(), e1.getValue().size()))
@@ -130,6 +141,10 @@ public class QueryEngine {
     }
 
     public List<Map<String, Object>> getRareWords(int limit, int offset) {
+        if (dataSource instanceof DatamartDataSource) {
+            throw new UnsupportedOperationException("Rare words are not supported with DatamartDataSource");
+        }
+
         reloadIndexIfNeeded();
         return invertedIndex.getIndex().entrySet().stream()
                 .filter(e -> e.getValue().size() == 1)
@@ -143,4 +158,5 @@ public class QueryEngine {
                 })
                 .collect(Collectors.toList());
     }
+
 }

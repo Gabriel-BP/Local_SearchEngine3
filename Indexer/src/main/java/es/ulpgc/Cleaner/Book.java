@@ -1,8 +1,9 @@
 package es.ulpgc.Cleaner;
 
+import java.io.Serializable;
 import java.util.List;
 
-public class Book {
+public class Book implements Serializable {
     public String title;
     public String author;
     public String date;

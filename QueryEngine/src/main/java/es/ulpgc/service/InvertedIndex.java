@@ -79,4 +79,9 @@ public class InvertedIndex {
         }
         return metadata;
     }
+
+    public boolean usesDatamart() {
+        return datamartDataSource != null;
+    }
+
 }
