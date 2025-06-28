@@ -12,19 +12,6 @@
         <version>0.2.2</version>
       </plugin>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>1.4.0</version>
-        <configuration>
-          <executable>java</executable>
-          <arguments>
-            <argument>-classpath</argument>
-            <classpath />
-            <argument>es.ulpgc.benchmark.IndexerBenchmark</argument>
-          </arguments>
-        </configuration>
-      </plugin>
-      <plugin>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.5.0</version>
         <executions>
@@ -35,9 +22,19 @@
             </goals>
             <configuration>
               <createDependencyReducedPom>true</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
               <transformers>
                 <transformer>
-                  <mainClass>es.ulpgc.Indexer.Main.</mainClass>
+                  <mainClass>es.ulpgc.Indexer.Main</mainClass>
                 </transformer>
               </transformers>
             </configuration>

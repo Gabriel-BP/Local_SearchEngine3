@@ -10,5 +10,8 @@ COPY target/indexer-1.0-SNAPSHOT.jar ./indexer-module.jar
 # Expose Hazelcast default port
 EXPOSE 5701
 
-# Command to run the application
-CMD ["java", "-jar", "indexer-module.jar"]
+# Default empty JAVA_OPTS
+ENV JAVA_OPTS=""
+
+# Command to run the application with JAVA_OPTS
+CMD java $JAVA_OPTS -jar indexer-module.jar

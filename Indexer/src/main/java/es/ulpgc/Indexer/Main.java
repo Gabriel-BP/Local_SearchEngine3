@@ -1,136 +1,181 @@
 package es.ulpgc.Indexer;
 
 import com.hazelcast.collection.IQueue;
+import com.hazelcast.config.Config;
+import com.hazelcast.config.JoinConfig;
+import com.hazelcast.config.NetworkConfig;
+import com.hazelcast.config.TcpIpConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.map.IMap;
 import es.ulpgc.Cleaner.Book;
 import es.ulpgc.Cleaner.Cleaner;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.*;
+import java.util.concurrent.*;
 
 public class Main {
     public static void main(String[] args) {
-        // Start a Hazelcast instance
-        HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance();
+        Config config = new Config();
+        config.setClusterName("search-cluster");
+        config.setInstanceName("hazelcast-instance");
 
-        // Define the distributed queue for task coordination
-        IQueue<String> taskQueue = hazelcastInstance.getQueue("bookTasks");
+        NetworkConfig network = config.getNetworkConfig();
+        network.setPort(5701).setPortAutoIncrement(true);
 
-        // Define the distributed map to track the last processed file
-        IMap<String, String> lastProcessedMap = hazelcastInstance.getMap("lastProcessedMap");
-
-        // Define the scheduled executor service to run the task periodically
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
-        // Task to initialize the queue and process files every 30 seconds
-        Runnable task = () -> {
-            // Get the last processed file from the distributed map
-            String lastProcessedFile = lastProcessedMap.get("lastProcessed");
-            System.out.println("Last processed file: " + lastProcessedFile);
-
-            // Initialize the queue with tasks if it's empty (only one member does this)
-            if (hazelcastInstance.getCluster().getMembers().iterator().next().localMember()) {
-                System.out.println("Initializing task queue...");
-
-                // Traverse all subdirectories of 'datalake' and add files to the task queue
-                File rootFolder = new File("/app/datalake");
-                addFilesToQueue(rootFolder, taskQueue, lastProcessedFile);
-
-                System.out.println("Task queue initialized.");
-            }
-
-            // Continuously process tasks from the queue
-            String filePath = null;
-            try {
-                while ((filePath = taskQueue.poll()) != null) {
-                    System.out.println("Processing file: " + filePath);
-                    File file = new File(filePath);
-                    Cleaner cleaner = new Cleaner();
-                    Book book = cleaner.processBook(file); // Process the book
-                    Indexer indexer = new Indexer();
-                    indexer.indexBooks(Collections.singletonList(book), "datamart"); // Index the processed book
-                    System.out.println("File processed and indexed successfully: " + filePath);
-
-                    // Update the last processed file in the distributed map
-                    lastProcessedMap.put("lastProcessed", file.getName()); // Track the last processed file
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
+                        network.setPublicAddress(addr.getHostAddress());
+                        System.out.println("[INFO] IP detectada para Hazelcast: " + addr.getHostAddress());
+                        break;
+                    }
                 }
-                System.out.println("No more tasks available in the queue.");
-            } catch (IOException e) {
-                System.err.println("Error processing file: " + filePath + ". " + e.getMessage());
             }
-        };
+        } catch (Exception e) {
+            System.err.println("[ERROR] No se pudo detectar IP local del contenedor: " + e.getMessage());
+        }
 
-        // Schedule the task to run every 30 seconds
-        scheduler.scheduleAtFixedRate(task, 0, 30, TimeUnit.SECONDS);
+        JoinConfig join = network.getJoin();
+        join.getMulticastConfig().setEnabled(false);
 
-        System.out.println("Task scheduled to run every 30 seconds.");
+        String hazelcastMembers = System.getenv().getOrDefault("HZ_MEMBERS", "host.docker.internal");
+        TcpIpConfig tcpIpConfig = join.getTcpIpConfig().setEnabled(true);
+        for (String member : hazelcastMembers.split(",")) {
+            System.out.println("[INFO] Añadiendo miembro Hazelcast: " + member.trim());
+            tcpIpConfig.addMember(member.trim());
+        }
+
+        HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
+
+        String role = System.getenv().getOrDefault("ROLE", "worker").toLowerCase();
+        if (role.equals("writer")) {
+            runWriter(hazelcastInstance);
+        } else {
+            runWorker(hazelcastInstance);
+        }
     }
 
-    private static void addFilesToQueue(File folder, IQueue<String> taskQueue, String lastProcessedFile) {
-        if (folder.exists() && folder.isDirectory()) {
-            // Get all .txt and .html files in the folder
-            File[] files = folder.listFiles((dir, name) -> name.endsWith(".txt") || name.endsWith(".html"));
-            if (files != null) {
-                // Sort files numerically by extracting the numeric part of the file name
-                Arrays.sort(files, new Comparator<File>() {
-                    @Override
-                    public int compare(File f1, File f2) {
-                        // Extract numeric parts of file names
-                        int num1 = extractNumberFromFile(f1);
-                        int num2 = extractNumberFromFile(f2);
-                        return Integer.compare(num1, num2);
+    private static void runWorker(HazelcastInstance hazelcastInstance) {
+        IQueue<String> taskQueue = hazelcastInstance.getQueue("bookTasks");
+        IQueue<IndexResult> resultsQueue = hazelcastInstance.getQueue("resultsQueue");
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                List<String> files = MinioClientHelper.listFilesWithPrefix("raw/");
+                files.sort(Comparator.comparing(Main::extractFilenameNumber));
+
+                for (String path : files) {
+                    if (!taskQueue.contains(path)) {
+                        taskQueue.add(path);
+                        System.out.println("[DEBUG] Añadido a la cola: " + path);
                     }
-                });
-
-                boolean addFiles = false;
-
-                // If lastProcessedFile is null, start adding files from the beginning
-                if (lastProcessedFile == null) {
-                    addFiles = true;
                 }
 
-                // Add files to the task queue starting from the file after the last processed one
-                for (File file : files) {
-                    // If we haven't found the last processed file yet, continue
-                    if (!addFiles) {
-                        if (file.getName().equals(lastProcessedFile)) {
-                            addFiles = true; // Start adding files after this one
+                String filePath;
+                while ((filePath = taskQueue.poll()) != null) {
+                    String finalPath = filePath;
+                    pool.submit(() -> {
+                        try {
+                            String fileName = new File(finalPath).getName();
+                            System.out.println("[INFO] Procesando: " + fileName);
+
+                            String localPath = "/tmp/" + fileName;
+                            MinioClientHelper.downloadFile(finalPath, localPath);
+
+                            Cleaner cleaner = new Cleaner();
+                            Book book = cleaner.processBook(new File(localPath));
+
+                            Indexer tempIndexer = new Indexer();
+                            tempIndexer.buildIndexes(List.of(book));
+
+                            IndexResult result = new IndexResult(book, tempIndexer.getBookIndexer().getHashMapIndexer().getIndex());
+                            resultsQueue.add(result);
+
+                            System.out.println("[SUCCESS] Resultado encolado: " + book.ebookNumber);
+
+                        } catch (Exception e) {
+                            System.err.println("[ERROR] Procesando archivo: " + e.getMessage());
                         }
-                        continue;
-                    }
-
-                    // Add the file to the task queue
-                    taskQueue.add(file.getAbsolutePath());
+                    });
                 }
+
+            } catch (Exception e) {
+                System.err.println("[ERROR] Worker indexTask: " + e.getMessage());
             }
+        }, 0, 1, TimeUnit.SECONDS);
 
-            // Recursively add files from subdirectories
-            File[] subfolders = folder.listFiles(File::isDirectory);
-            if (subfolders != null) {
-                for (File subfolder : subfolders) {
-                    addFilesToQueue(subfolder, taskQueue, lastProcessedFile); // Recurse into subdirectories
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("[INFO] Shutdown detectado. Cerrando worker...");
+            scheduler.shutdownNow();
+            pool.shutdownNow();
+            hazelcastInstance.shutdown();
+        }));
+    }
+
+    private static void runWriter(HazelcastInstance hazelcastInstance) {
+        IQueue<IndexResult> queue = hazelcastInstance.getQueue("resultsQueue");
+        DataMartWriter writer = new DataMartWriter();
+
+        System.out.println("[WRITER] Esperando resultados...");
+
+        final int BATCH_SIZE = 10;
+        final long MAX_WAIT_MILLIS = 3000;
+
+        List<IndexResult> batch = new ArrayList<>(BATCH_SIZE);
+        long lastFlush = System.currentTimeMillis();
+
+        while (true) {
+            try {
+                IndexResult result = queue.poll(500, TimeUnit.MILLISECONDS);
+                long now = System.currentTimeMillis();
+
+                if (result != null) batch.add(result);
+
+                if (!batch.isEmpty() && (batch.size() >= BATCH_SIZE || now - lastFlush >= MAX_WAIT_MILLIS)) {
+                    List<Book> books = new ArrayList<>();
+                    Map<String, Set<String>> merged = new TreeMap<>();
+
+                    batch.forEach(r -> {
+                        books.add(r.book);
+                        r.wordIndex.forEach((word, ids) ->
+                                merged.computeIfAbsent(word, k -> new HashSet<>()).addAll(ids));
+                    });
+
+                    writer.saveMetadataToDataMart(books);
+                    writer.saveContentToDataMart(merged);
+                    System.out.println("[WRITER] Guardado lote de " + batch.size() + " libros");
+
+                    batch.clear();
+                    lastFlush = now;
                 }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                System.err.println("[WRITER ERROR] " + e.getMessage());
             }
         }
     }
 
-    // Helper method to extract the numeric part from the file name
-    private static int extractNumberFromFile(File file) {
-        String fileName = file.getName().replaceFirst("[.][^.]+$", ""); // Remove file extension
+    private static int extractFilenameNumber(String path) {
         try {
-            // Assuming the numeric part starts after the first two characters (e.g., 011.txt -> 11)
-            return Integer.parseInt(fileName.substring(2)); // Extract and return the number
-        } catch (NumberFormatException e) {
-            System.err.println("Error parsing number from file name: " + file.getName());
-            return Integer.MAX_VALUE; // Default to a large number if parsing fails
+            String name = new File(path).getName().replaceFirst("[.][^.]+$", "");
+            return Integer.parseInt(name.replaceAll("\\D", ""));
+        } catch (Exception e) {
+            return Integer.MAX_VALUE;
         }
     }
 }
